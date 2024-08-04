@@ -1,127 +1,129 @@
-import {
-  time,
-  loadFixture,
-} from "@nomicfoundation/hardhat-toolbox/network-helpers";
-import { anyValue } from "@nomicfoundation/hardhat-chai-matchers/withArgs";
-import { expect } from "chai";
-import hre from "hardhat";
+/**
+ * @Contract address: https://sepolia.etherscan.io/address/0xcCb1e0e1501A2Ee13824de30aBb02b3E584b43B4#code
+ */
 
-describe("Lock", function () {
-  // We define a fixture to reuse the same setup in every test.
-  // We use loadFixture to run this setup once, snapshot that state,
-  // and reset Hardhat Network to that snapshot in every test.
-  async function deployOneYearLockFixture() {
-    const ONE_YEAR_IN_SECS = 365 * 24 * 60 * 60;
-    const ONE_GWEI = 1_000_000_000;
+import hre from 'hardhat'
+import { ethers, Signer, BigNumberish } from 'ethers'
+import { expect } from 'chai'
+import { MyNFT721 } from '../typechain/contracts'
 
-    const lockedAmount = ONE_GWEI;
-    const unlockTime = (await time.latest()) + ONE_YEAR_IN_SECS;
+describe('MyNFT721', function () {
+  let owner: Signer
+  let admin: Signer
+  let admin_1: Signer
+  let MyNFTContract: MyNFT721
+  let lockedAmount: bigint
 
-    // Contracts are deployed using the first signer/account by default
-    const [owner, otherAccount] = await hre.ethers.getSigners();
+  before(async function () {
+    [owner, admin, admin_1] = await hre.ethers.getSigners()
+    const NFTContract = await hre.ethers.getContractFactory('MyNFT721', owner)
+    MyNFTContract = await NFTContract.deploy()
+    await MyNFTContract.waitForDeployment()
+    const ONE_GWEI = ethers.parseEther("5")
+    lockedAmount = ONE_GWEI;
+    await MyNFTContract.connect(owner).addAdmin(await admin.getAddress());                                         // Initial set to admin
+    // await MyNFTContract.connect(admin).setURI("https://1kin.mypinata.cloud/ipfs/Qmb48bfpEzuuJ6VJFxQGn367kUWqTdk1h4Rv4zjmTpm36Y");
+    await MyNFTContract.connect(admin).deposit({value: ethers.parseEther("0.001")});                                 // Initial admin deposit 5 eth
+  })
 
-    const Lock = await hre.ethers.getContractFactory("Lock");
-    const lock = await Lock.deploy(unlockTime, { value: lockedAmount });
-
-    return { lock, unlockTime, lockedAmount, owner, otherAccount };
-  }
-
-  describe("Deployment", function () {
-    it("Should set the right unlockTime", async function () {
-      const { lock, unlockTime } = await loadFixture(deployOneYearLockFixture);
-
-      expect(await lock.unlockTime()).to.equal(unlockTime);
-    });
-
-    it("Should set the right owner", async function () {
-      const { lock, owner } = await loadFixture(deployOneYearLockFixture);
-
-      expect(await lock.owner()).to.equal(owner.address);
-    });
-
-    it("Should receive and store the funds to lock", async function () {
-      const { lock, lockedAmount } = await loadFixture(
-        deployOneYearLockFixture
-      );
-
-      expect(await hre.ethers.provider.getBalance(lock.target)).to.equal(
-        lockedAmount
-      );
-    });
-
-    it("Should fail if the unlockTime is not in the future", async function () {
-      // We don't use the fixture here because we want a different deployment
-      const latestTime = await time.latest();
-      const Lock = await hre.ethers.getContractFactory("Lock");
-      await expect(Lock.deploy(latestTime, { value: 1 })).to.be.revertedWith(
-        "Unlock time should be in the future"
-      );
+  describe("Check owner:", function () {
+    it("[ ] Should set the right owner", async function () {
+      expect(await MyNFTContract.owner()).to.equal(owner);
     });
   });
-
-  describe("Withdrawals", function () {
-    describe("Validations", function () {
-      it("Should revert with the right error if called too soon", async function () {
-        const { lock } = await loadFixture(deployOneYearLockFixture);
-
-        await expect(lock.withdraw()).to.be.revertedWith(
-          "You can't withdraw yet"
-        );
-      });
-
-      it("Should revert with the right error if called from another account", async function () {
-        const { lock, unlockTime, otherAccount } = await loadFixture(
-          deployOneYearLockFixture
-        );
-
-        // We can increase the time in Hardhat Network
-        await time.increaseTo(unlockTime);
-
-        // We use lock.connect() to send a transaction from another account
-        await expect(lock.connect(otherAccount).withdraw()).to.be.revertedWith(
-          "You aren't the owner"
-        );
-      });
-
-      it("Shouldn't fail if the unlockTime has arrived and the owner calls it", async function () {
-        const { lock, unlockTime } = await loadFixture(
-          deployOneYearLockFixture
-        );
-
-        // Transactions are sent using the first signer by default
-        await time.increaseTo(unlockTime);
-
-        await expect(lock.withdraw()).not.to.be.reverted;
-      });
+  
+  describe("Check Contract:", function () {
+    it("[ ] set nft price by admin", async function () {
+      await expect(MyNFTContract.connect(admin).setPrice(0.03));
     });
-
-    describe("Events", function () {
-      it("Should emit an event on withdrawals", async function () {
-        const { lock, unlockTime, lockedAmount } = await loadFixture(
-          deployOneYearLockFixture
-        );
-
-        await time.increaseTo(unlockTime);
-
-        await expect(lock.withdraw())
-          .to.emit(lock, "Withdrawal")
-          .withArgs(lockedAmount, anyValue); // We accept any value as `when` arg
-      });
+    
+    it("[ ] get nft price", async function () {
+      expect(MyNFTContract.connect(admin).setPrice(0.03));
+      const current_Price = await MyNFTContract.getPrice();
+      console.log('Current NFT price: ', current_Price);
+      // await expect(current_Price).to.be.gt(0);                                                   // This assertion checks that current_Price is greater than 0
     });
-
-    describe("Transfers", function () {
-      it("Should transfer the funds to the owner", async function () {
-        const { lock, unlockTime, lockedAmount, owner } = await loadFixture(
-          deployOneYearLockFixture
-        );
-
-        await time.increaseTo(unlockTime);
-
-        await expect(lock.withdraw()).to.changeEtherBalances(
-          [owner, lock],
-          [lockedAmount, -lockedAmount]
-        );
-      });
+    
+    it("[ ] deposit balance by a user", async function () {
+      const depositAmount = ethers.parseEther("1");
+      console.log('depositAmount: ', depositAmount);
+      
+      await MyNFTContract.connect(admin).deposit({value: depositAmount});
+      const balance = await MyNFTContract.userBalances(await admin.getAddress());
+      console.log('balance: ', balance);
+      
+      expect(balance).to.equal(lockedAmount + depositAmount);
+    });
+    
+    it("[ ] deposit balance by multiple users", async function () {
+      const depositAmount1 = ethers.parseEther("1");
+      const depositAmount2 = ethers.parseEther("2");
+      const depositAmount = depositAmount1 + depositAmount2;
+      console.log('depositAmount1: ', depositAmount1);
+      console.log('depositAmount2: ', depositAmount2);
+      console.log('Total depositAmount: ', depositAmount);
+      
+      await MyNFTContract.connect(admin).deposit({value: depositAmount1});
+      await MyNFTContract.connect(admin_1).deposit({value: depositAmount2});
+      const balance1 = await MyNFTContract.userBalances(await admin.getAddress());
+      const balance2 = await MyNFTContract.userBalances(await admin_1.getAddress());
+      const balance = balance1 + balance2;
+      console.log('balance1: ', balance1);
+      console.log('balance2: ', balance2);
+      console.log('Total balance: ', balance);
+      
+      expect(balance).to.equal(lockedAmount + depositAmount);
+    });
+    
+    it("[ ] should allow a user to withdraw funds if they have sufficient balance", async function () {
+      const withdrawAmount = ethers.parseEther("2");
+      
+      // Perform the withdrawal
+      await expect(async () => MyNFTContract.connect(admin).withdraw(withdrawAmount))
+      .to.changeEtherBalances([admin, MyNFTContract], [withdrawAmount, -withdrawAmount]);
+      
+      // Verify the balance in the contract
+      const balance = await MyNFTContract.userBalances(await admin.getAddress());
+      console.log('withdraw balance: ', balance);
+      expect(balance).to.equal(ethers.parseEther("3"));
+    });
+    
+    it("[ ] should revert if a user tries to withdraw more than their balance", async function () {
+      const withdrawAmount = ethers.parseEther("10");
+      
+      await expect(MyNFTContract.connect(admin).withdraw(withdrawAmount))
+      .to.be.revertedWith('Insufficient balance');
+    });
+    
+    it("[ ] should correctly update user balance after withdrawal", async function () {
+      const withdrawAmount = ethers.parseEther("1");
+      
+      // Perform the withdrawal
+      await MyNFTContract.connect(admin).withdraw(withdrawAmount);
+      
+      // Verify the balance in the contract
+      const balance = await MyNFTContract.userBalances(await admin.getAddress());
+      console.log('withdraw balance: ', balance);
+      expect(balance).to.equal(ethers.parseEther("4"));                                                                      // lockedAmount - balance = 5 - 1 => 4 ETH
     });
   });
-});
+  
+  it("[ ] set URI by real admin", async function () {
+    const myURI = "https://gateway.pinata.cloud/ipfs/QmR9wa24jq8Z74RQoy4E6SmH7rjpWfwDtw3s7n56smWEub?_gl=1*16pmst5*_ga*MTUwNTM5MzEyOS4xNjc1Mzg3MTY3*_ga_5RMPXG14TE*MTY3NTY3Njk0Mi4yLjEuMTY3NTY3NzIzOC40My4wLjA";
+    console.log('myURI: ', myURI);
+    
+    await MyNFTContract.connect(admin).setURI(myURI);
+  });
+  
+  it("[ ] set URI by fake admin", async function () {
+    const myURI = "https://gateway.pinata.cloud/ipfs/QmR9wa24jq8Z74RQoy4E6SmH7rjpWfwDtw3s7n56smWEub?_gl=1*16pmst5*_ga*MTUwNTM5MzEyOS4xNjc1Mzg3MTY3*_ga_5RMPXG14TE*MTY3NTY3Njk0Mi4yLjEuMTY3NTY3NzIzOC40My4wLjA";
+    console.log('myURI: ', myURI);
+    
+    await expect(MyNFTContract.connect(admin_1).setURI(myURI)).to.be.revertedWith('Caller is not admin');
+  });
+  
+  it("[ ] Mint NFT", async function () {
+    await MyNFTContract.connect(admin).mintNFT({ value: ethers.parseEther("0.001") });
+    expect(await MyNFTContract.ownerOf(0)).to.equal(await admin.getAddress());
+  });
+})
